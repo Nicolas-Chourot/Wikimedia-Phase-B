@@ -267,8 +267,9 @@ public class MediasController : Controller
                 if (Media.OwnerId == Models.User.ConnectedUser.Id || Models.User.ConnectedUser.IsAdmin)
                 {
                     DB.Medias.Delete(id);
+                    return RedirectToAction("List");
                 }
-                return RedirectToAction("List");
+                return Redirect("/Accounts/Login?message=Accès illégal! &success=false");
             }
         }
         return Redirect("/Accounts/Login?message=Accès illégal! &success=false");
