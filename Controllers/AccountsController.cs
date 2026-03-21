@@ -108,6 +108,7 @@ namespace Controllers
         public ActionResult Subscribe(User user, string NotifyCB = "off")
         {
             user.Notify = NotifyCB == "on";
+            user.Access = Access.View;
             DB.Users.Add(user);
             Models.User.ConnectedUser = user;
             DB.Events.Add("Subscribe");
