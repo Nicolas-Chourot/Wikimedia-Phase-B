@@ -7,6 +7,8 @@ using System.Web;
 
 namespace Models
 {
+    public enum MediaSortBy { Title, PublishDate }
+
     public class Media : Record
     {
         public string Title { get; set; }
