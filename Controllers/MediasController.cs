@@ -91,7 +91,7 @@ public class MediasController : Controller
         {
             IEnumerable<Media> result = null;
             // Must evaluate HasChanged before forceRefresh, this will fix an usefull refresh
-            if (DB.Medias.HasChanged || forceRefresh)
+            if (DB.Users.HasChanged || DB.Medias.HasChanged || forceRefresh)
             {
                 InitSessionVariables();
                 bool search = (bool)Session["Search"];
