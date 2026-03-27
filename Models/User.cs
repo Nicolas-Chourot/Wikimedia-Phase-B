@@ -23,6 +23,14 @@ namespace Models
             Verified = false;
             Notify = true;
         }
+        public void SetNew()
+        {
+            Id = 0;
+            Blocked = false;
+            Access = Access.View;
+            Online = false;
+            Verified = false;
+        }
         #region Data Members
         public string Name { get; set; }
         public string Email { get; set; }
@@ -39,6 +47,14 @@ namespace Models
         public string Avatar { get; set; } = Avatars_Folder + Default_Avatar;
 
         #endregion
+        public override bool IsValid()
+        {
+            if (DB.Users.ToList().Where(u => u.Email == Email && u.Id != Id).Any()) return false;
+            if (!IsAlpha(Name)) return false;
+            if (!IsEmail(Email)) return false;
+            if (!HasRequiredLength(Password, 6)) return false;
+            return true;
+        }
 
         #region View members
         [JsonIgnore]

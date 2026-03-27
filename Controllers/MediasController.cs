@@ -2,6 +2,7 @@
 using Models;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Web.Mvc;
 using static Controllers.AccessControl;
@@ -26,6 +27,108 @@ public class MediasController : Controller
         if (Session["MediaSortBy"] == null) Session["MediaSortBy"] = MediaSortBy.PublishDate;
         if (Session["SortAscending"] == null) Session["SortAscending"] = false;
         ValidateSelectedCategory();
+
+        // paging handling
+        if (Session["pageNum"] == null) Session["pageNum"] = 1;
+        if (Session["firstPageSize"] == null) Session["firstPageSize"] = 12;
+        if (Session["pageSize"] == null) Session["pageSize"] = 3;
+        if (Session["EndOfMedias"] == null) Session["EndOfMedias"] = false;
+    }
+
+    private void ResetMediasPaging()
+    {
+        Session["pageNum"] = 1;
+        Session["EndOfMedias"] = false;
+    }
+    private List<Media> _getItems(int index, int nbItems)
+    {
+        try
+        {
+            IEnumerable<Media> result = null;
+
+            InitSessionVariables();
+
+            bool search = (bool)Session["Search"];
+            string searchString = (string)Session["SearchString"];
+
+            if (Models.User.ConnectedUser.IsAdmin)
+                result = DB.Medias.ToList();
+            else
+                result = DB.Medias.ToList().Where(c => c.Shared || Models.User.ConnectedUser.Id == c.OwnerId);
+
+            if (search)
+            {
+                result = result.Where(c => (c.Title.ToLower() + c.Description.ToLower()).Contains(searchString));
+
+                string SelectedCategory = (string)Session["SelectedCategory"];
+                if (SelectedCategory != "")
+                    result = result.Where(c => c.Category == SelectedCategory);
+            }
+
+
+            if ((bool)Session["SortAscending"])
+            {
+                switch ((MediaSortBy)Session["MediaSortBy"])
+                {
+                    case MediaSortBy.Title:
+                        result = result.OrderBy(c => c.Title); break;
+                    case MediaSortBy.PublishDate:
+                        result = result.OrderBy(c => c.PublishDate); break;
+                }
+            }
+            else
+            {
+                switch ((MediaSortBy)Session["MediaSortBy"])
+                {
+                    case MediaSortBy.Title:
+                        result = result.OrderByDescending(c => c.Title); break;
+                    case MediaSortBy.PublishDate:
+                        result = result.OrderByDescending(c => c.PublishDate); break;
+                }
+            }
+            if (result.Count() < nbItems + index)
+            {
+                nbItems = result.Count() - index;
+                Session["EndOfMedias"] = true;
+            }
+            return result.Skip(index).Take(nbItems).ToList();
+        }
+        catch (System.Exception ex)
+        {
+            return null;
+        }
+    }
+
+    // /Medias/SetFirstPageSize?pageSize =
+    public ActionResult SetFirstPageSize(int pageSize)
+    {
+        Session["firstPageSize"] = pageSize;
+        return null; //  no need to respond
+    }
+
+    public ActionResult getNextMediasPage()
+    {
+        bool EndOfMedias = (bool)Session["EndOfMedias"];
+        if (!EndOfMedias)
+        {
+            Session["pageNum"] = (int)Session["pageNum"] + 1;
+            int pageNum = (int)Session["pageNum"];
+            int pageSize = (int)Session["pageSize"];
+            int firstPageSize = (int)Session["firstPageSize"];
+            Debug.WriteLine("PageNum: " + pageNum);
+            IEnumerable<Media> mediasPage = _getItems(
+                pageNum == 1 ? 0 : (pageNum - 2) * pageSize + firstPageSize,
+                pageNum == 1 ? firstPageSize : pageSize);
+            return PartialView("GetMedias", mediasPage);
+        }
+        return null;
+    }
+
+    public ActionResult EndOfMedias()
+    {
+        bool EndOfMedias = (bool)Session["EndOfMedias"];
+        return Json(EndOfMedias, JsonRequestBehavior.AllowGet);
+
     }
 
     private void ResetCurrentMediaInfo()
@@ -87,56 +190,25 @@ public class MediasController : Controller
     }
     public ActionResult GetMedias(bool forceRefresh = false)
     {
-        try
         {
-            IEnumerable<Media> result = null;
-            // Must evaluate HasChanged before forceRefresh, this will fix an usefull refresh
-            if (DB.Users.HasChanged || DB.Medias.HasChanged || forceRefresh)
+            try
             {
-                InitSessionVariables();
-                bool search = (bool)Session["Search"];
-                string searchString = (string)Session["SearchString"];
-
-                if (Models.User.ConnectedUser.IsAdmin)
-                    result = DB.Medias.ToList();
-                else
-                    result = DB.Medias.ToList().Where(c => c.Shared || Models.User.ConnectedUser.Id == c.OwnerId);
-
-                if (search)
+                if (DB.Users.HasChanged ||
+                    DB.Medias.HasChanged ||
+                    forceRefresh)
                 {
-                    result = result.Where(c => c.Title.ToLower().Contains(searchString)).OrderBy(c => c.Title);
-                    string SelectedCategory = (string)Session["SelectedCategory"];
-                    if (SelectedCategory != "")
-                        result = result.Where(c => c.Category == SelectedCategory);
+                    InitSessionVariables();
+                    int pageNum = (int)Session["pageNum"];
+                    int pageSize = (int)Session["pageSize"];
+                    int firstPageSize = (int)Session["firstPageSize"];
+                    return PartialView(_getItems(0, pageNum > 1 ? (pageNum - 1) * pageSize + firstPageSize : firstPageSize));
                 }
-
-                if ((bool)Session["SortAscending"])
-                {
-                    switch ((MediaSortBy)Session["MediaSortBy"])
-                    {
-                        case MediaSortBy.Title:
-                            result = result.OrderBy(c => c.Title); break;
-                        case MediaSortBy.PublishDate:
-                            result = result.OrderBy(c => c.PublishDate); break;
-                    }
-                }
-                else
-                {
-                    switch ((MediaSortBy)Session["MediaSortBy"])
-                    {
-                        case MediaSortBy.Title:
-                            result = result.OrderByDescending(c => c.Title); break;
-                        case MediaSortBy.PublishDate:
-                            result = result.OrderByDescending(c => c.PublishDate); break;
-                    }
-                }
-                return PartialView(result);
+                return null;
             }
-            return null;
-        }
-        catch (System.Exception ex)
-        {
-            return Content("Erreur interne" + ex.Message, "text/html");
+            catch (System.Exception ex)
+            {
+                return Content("Erreur interne" + ex.Message, "text/html");
+            }
         }
     }
     public ActionResult List()
@@ -146,17 +218,20 @@ public class MediasController : Controller
     }
     public ActionResult ToggleSearch()
     {
+        ResetMediasPaging();
         if (Session["Search"] == null) Session["Search"] = false;
         Session["Search"] = !(bool)Session["Search"];
         return RedirectToAction("List");
     }
     public ActionResult SetMediaSortBy(MediaSortBy mediaSortBy)
     {      // /Medias/SetMediasSortBy?mediaSortBy= 
+        ResetMediasPaging();
         Session["MediaSortBy"] = mediaSortBy;
         return RedirectToAction("List");
     }
     public ActionResult ToggleMediaSort()
     {
+        ResetMediasPaging();
         int mediaSortBy = (int)Session["MediaSortBy"] + 1;
         if (mediaSortBy >= Enum.GetNames(typeof(MediaSortBy)).Length) mediaSortBy = 0;
         Session["MediaSortBy"] = mediaSortBy;
@@ -164,17 +239,20 @@ public class MediasController : Controller
     }
     public ActionResult ToggleSort()
     {
+        ResetMediasPaging();
         Session["SortAscending"] = !(bool)Session["SortAscending"];
         return RedirectToAction("List");
     }
     public ActionResult SetSearchString(string value)
     {
+        ResetMediasPaging();
         Session["SearchString"] = value.ToLower();
         return RedirectToAction("List");
     }
 
     public ActionResult SetSearchCategory(string value)
     {
+        ResetMediasPaging();
         Session["SelectedCategory"] = value;
         return RedirectToAction("List");
     }
@@ -182,7 +260,6 @@ public class MediasController : Controller
     {
         return View();
     }
-
 
     public ActionResult Details(int id)
     {
@@ -208,11 +285,16 @@ public class MediasController : Controller
     [ValidateAntiForgeryToken()]
     public ActionResult Create(Media Media, string sharedCB = "off")
     {
-        Media.OwnerId = Models.User.ConnectedUser.Id;
-        Media.Shared = sharedCB == "on";
-        DB.Medias.Add(Media);
-        DB.Events.Add("Create", Media.Title);
-        return RedirectToAction("List");
+        if (Media.IsValid())
+        {
+            Media.OwnerId = Models.User.ConnectedUser.Id;
+            Media.Shared = sharedCB == "on";
+            DB.Medias.Add(Media);
+            DB.Events.Add("Create", Media.Title);
+            return RedirectToAction("List");
+        }
+        DB.Events.Add("Illegal Create Media");
+        return Redirect("/Accounts/Login?message=Erreur de creation de Media!&success=false");
     }
 
     [UserAccess(Access.Write)]
@@ -251,15 +333,22 @@ public class MediasController : Controller
         Media storedMedia = DB.Medias.Get(id);
         if (storedMedia != null)
         {
-            Media.Id = id; // patch the Id
             Media.Shared = sharedCB == "on";
-            Media.OwnerId = storedMedia.OwnerId;
-            Media.PublishDate = storedMedia.PublishDate; // keep orignal PublishDate
-            DB.Medias.Update(Media);
-        }
-        return RedirectToAction("Details/" + id);
-    }
 
+            // restore non editable fields
+            Media.Id = id;
+            Media.OwnerId = storedMedia.OwnerId;
+            Media.PublishDate = storedMedia.PublishDate;
+
+            if (Media.IsValid())
+            {
+                DB.Medias.Update(Media);
+                return RedirectToAction("Details/" + id);
+            }
+        }
+        DB.Events.Add("Illegal Edit Media");
+        return Redirect("/Accounts/Login?message=Erreur de modification de Media!&success=false");
+    }
 
     [UserAccess(Access.Write)]
     public ActionResult Delete()
